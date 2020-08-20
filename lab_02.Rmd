@@ -1,0 +1,148 @@
+---
+title: "Geography 176A"
+author: "[Bryn McGowan](https://brynmcgowan22.github.io)"
+subtitle: 'Lab 02: COVID-19 Pandemic'
+output:
+  html_document:
+    theme: journal
+---
+### Install packages and retrieve COVID data.
+```{r, message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(knitr)
+library(readxl)
+library(zoo)
+
+url = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv"
+
+covid = read_csv(url)
+```
+
+### Filter California data, calculate new cases per day.
+```{r, message=FALSE, warning=FALSE}
+dat <- covid %>% 
+  filter(state == "California") %>% 
+  group_by(county) %>% 
+  mutate(newCases = cases - lag(cases)) %>% 
+  ungroup() %>% 
+  filter(date == max(date))
+
+most_cases <- dat %>% 
+  slice_max(cases, n= 5) %>% 
+  select(county, cases)
+
+knitr::kable(most_cases, 
+             caption = "Most Cases California Counties",
+             col.names = c("County", "Cases"),
+             format.args = list(big.mark = ","))
+
+most_new_cases <- dat %>% 
+  slice_max(newCases, n = 5) %>% 
+  select(county, newCases)
+
+knitr::kable(most_new_cases, 
+             caption = "Most New Cases California Counties",
+             col.names = c("County", "New Cases"),
+             format.args = list(big.mark = ","))
+```
+### Load population estimate from census data.
+```{r, message=FALSE, warning=FALSE}
+library(readxl)
+PopulationEstimates <- read_excel("data/PopulationEstimates.xls", 
+                                  skip = 2)
+```
+
+```
+names(PopulationEstimates)
+dim(PopulationEstimates)
+nrow(PopulationEstimates)
+str(PopulationEstimates)
+```
+### Join California COVID data with census population data.
+```{r, message=FALSE, warning=FALSE}
+PopulationEstimates <- rename(PopulationEstimates, fips = FIPStxt)
+
+dat_pop <- left_join(dat, PopulationEstimates, by = "fips")
+```
+### Show most new cases in California counties per capita
+```{r, message=FALSE, warning=FALSE}
+dat_pop_casespercap <- mutate(dat_pop, cpc = cases/POP_ESTIMATE_2019 * 100)
+
+dat_pop_top5 <- dat_pop_casespercap %>% 
+  slice_max(cpc, n = 5) %>% 
+  select(county, cpc, cases, POP_ESTIMATE_2019)
+
+knitr::kable(dat_pop_top5, 
+             caption = "Most New Cases California Counties Per Capita",
+             col.names = c("County", "CPC", "Cases", "Population 2019"),
+             format.args = list(big.mark = ","))
+```
+### Show most new cases by California county.
+```{r, message=FALSE, warning=FALSE}
+dat_pop_newtot5 <- dat_pop_casespercap %>% 
+  slice_max(newCases, n = 5) %>% 
+  select(county, newCases)
+
+knitr::kable(dat_pop_newtot5, 
+             caption = "Most New Cases California Counties",
+             col.names = c("County", "New Cases"),
+             format.args = list(big.mark = ","))
+```
+### Show new cases per 100,000 people.
+```{r, message=FALSE, warning=FALSE}
+dat14 <- covid %>% 
+  filter(state == "California") %>% 
+  group_by(county) %>% 
+  mutate(newCases = cases - lag(cases)) %>% 
+  ungroup() %>% 
+  filter(date > max(date) - 14)
+
+dat14_pop <- left_join(dat14, PopulationEstimates, by = "fips")
+
+dat14_pop_sum <- dat14_pop %>% 
+  group_by(county) %>% 
+  summarise(tot_new = sum(newCases), new100k = sum(newCases) / POP_ESTIMATE_2019 * 100000) %>% 
+  unique()
+
+knitr::kable(dat14_pop_sum, 
+             caption = "New Cases Per 100,000 People",
+             col.names = c("County", "New Cases", "New Per 100k"),
+             format.args = list(big.mark = ","))
+```
+
+### Show four state daily new cases and rolling seven day mean.
+
+```{r, message=FALSE, warning=FALSE}
+states4 <- covid %>% 
+  filter(state %in% c("New York", "California", "Louisiana", "Florida")) %>% 
+  group_by(state, county) %>%
+  mutate(newCases = cases - lag(cases),
+         dailySeven = rollmean(newCases, 7, fill=NA, align="right"))
+
+ggplot(data = states4) +
+  geom_col(aes(x = date, y = newCases), fill = "darkred") +
+  geom_line(aes(x = date, y = dailySeven), color = "plum") +
+  labs(title = "Four State Daily New Cases and Rolling Seven Day Mean",  
+       x = "Date",  
+       y = "Cases") +
+  facet_wrap(~state, scales = "free") +
+  theme_minimal()
+```
+
+### Show four state daily new cases and rolling seven day mean per capita.
+
+```{r, message=FALSE, warning=FALSE}
+states4_pop <- left_join(states4, PopulationEstimates, by = "fips") %>% 
+  mutate(newcasespercapita = newCases/POP_ESTIMATE_2019 * 100,
+         dailySevenpercapita = dailySeven / POP_ESTIMATE_2019 * 100)
+
+ggplot(data = states4_pop) +
+  geom_col(aes(x = date, y = newcasespercapita), fill = "sienna1") +
+  geom_line(aes(x = date, y = dailySevenpercapita), color = "olivedrab") +
+  labs(title = "Four State Daily New Cases and Rolling Seven Day Mean Per Capita",  
+       x = "Date",  
+       y = "Cases") +
+  facet_wrap(~state, scales = "free") +
+  theme_minimal()
+```
