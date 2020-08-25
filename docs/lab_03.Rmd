@@ -1,0 +1,264 @@
+---
+title: "Geography 176A"
+author: "[Bryn McGowan](https://brynmcgowan22.github.io)"
+subtitle: 'Lab 03: Distances and the Border Zone'
+output:
+  html_document:
+    theme: journal
+---
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(sf)
+library(units)
+
+library(USAboundaries)
+library(rnaturalearth)
+
+library(gghighlight)
+library(ggrepel)
+library(knitr)
+```
+
+## Quesiton 1:
+### *1.1* Define a Projection
+#### For this lab we used the North American Equidistant Conic projection. This projection doesn't have an EPSG code, so it's written as follows:
+```{r, message=FALSE, warning=FALSE}
+eqdc = '+proj=eqdc +lat_0=40 +lon_0=-96 +lat_1=20 +lat_2=60 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs'
+```
+
+### *1.2* Get USA State Boundaries
+#### US state boundaries were accessed with the following, as well as filtering so only the continental US is shown, and finally transformed the data to be suitable for distance measurements at the national scale.
+```{r, message=FALSE, warning=FALSE}
+conus = USAboundaries::us_states(resolution = "low") %>% 
+  filter(!name %in% c("Alaska", "Hawaii", "District of Columbia", "Puerto Rico"))
+
+conus <- st_transform(conus, eqdc)
+```
+
+### *1.3* Get Country Boundaries for Mexico, the United States of America, and Canada
+#### World boundaries were accessed similarly to US boundaries and converted to simple feature format, then filtered to only show the three countries wanted and transformed to be suitable for distance measurements at the national scale.
+```{r, message=FALSE, warning=FALSE}
+world <- rnaturalearth::countries110 %>% 
+  st_as_sf() %>% 
+  filter(admin %in% c("United States of America", "Mexico", "Canada")) %>% 
+  st_transform(eqdc)
+```
+
+### *1.4* Get City Locations From the CSV File
+#### US city data was downloaded and read into the R script, then joined with CONUS data to remove cities from states outside the continental US, and finally transformed to be suitable for distance measurements at the national scale.  
+```{r, message=FALSE, warning=FALSE}
+library(readr)
+cities <- read_csv("../data/uscities.csv") %>% 
+  right_join(conus, by = "state_name") %>% 
+  st_as_sf(coords = c("lng", "lat"), crs = 4326) %>% 
+  st_transform(eqdc)
+```
+
+## Question 2:
+### *2.1* Distance to USA Border (Coastline or national)(km)
+#### US state boundaries were resolved to calculate the five cities with the greatest distance to the US border.
+```{r, message=FALSE, warning=FALSE}
+conus_b = st_union(conus) %>%
+  st_cast("MULTILINESTRING")
+
+cities = cities %>%
+  mutate(dist_to_border = st_distance(cities, conus_b),
+         dist_to_border = units::set_units(dist_to_border,"km"),
+         dist_to_border = units::drop_units(dist_to_border))
+
+cities5 = cities %>% 
+  slice_max(dist_to_border, n=5) %>% 
+  as_tibble() %>% 
+  select(city, state_name, dist_to_border)
+
+knitr::kable(cities5, 
+             caption = "Top 5 Greatest Distance to Border",
+             col.names = c("City", "State", "Greatest Distance to Border"))
+```
+
+### *2.2* Distance to States (km)
+#### Here, US state boundaries are preserved in order to calculate the five cities with the greatest distance to a state border.
+```{r, message=FALSE, warning=FALSE}
+conus_s = st_combine(conus) %>%
+  st_cast("MULTILINESTRING")
+
+cities = cities %>%
+  mutate(dist_to_stborder = st_distance(cities, conus_s),
+         dist_to_stborder = units::set_units(dist_to_stborder,"km"),
+         dist_to_stborder = units::drop_units(dist_to_stborder))
+
+cities_st5 = cities %>% 
+  slice_max(dist_to_stborder, n=5) %>% 
+  as_tibble() %>% 
+  select(city, state_name, dist_to_stborder)
+
+knitr::kable(cities_st5, 
+             caption = "Top 5 Greatest Distance to State Border",
+             col.names = c("City", "State", "Greatest Distance to Border"))
+```
+
+### *2.3* Distance to Mexico
+#### Mexico was filtered from the world bounaries in order to calculate the five US cities with the greatest distance to the Mexican border
+```{r, message=FALSE, warning=FALSE}
+mexico <- world %>% 
+  filter(admin == "Mexico")
+
+cities = cities %>%
+  mutate(dist_to_mexico = st_distance(cities, mexico),
+         dist_to_mexico = units::set_units(dist_to_mexico,"km"),
+         dist_to_mexico = units::drop_units(dist_to_mexico))
+
+cities_mx5 = cities %>% 
+  slice_max(dist_to_mexico, n=5) %>% 
+  as_tibble() %>% 
+  select(city, state_name, dist_to_mexico)
+
+knitr::kable(cities_mx5, 
+             caption = "Top 5 Greatest Distance to Mexico Border",
+             col.names = c("City", "State", "Greatest Distance to Border"))
+```
+
+### *2.4* Distance to Canada (km)
+#### Canada is filtered from the world boundaries in order to calculate the five US cities with the greatest distance from the Canadian border.
+```{r, message=FALSE, warning=FALSE}
+canada <- world %>% 
+  filter(admin == "Canada")
+
+cities = cities %>%
+  mutate(dist_to_canada = st_distance(cities, canada),
+         dist_to_canada = units::set_units(dist_to_canada,"km"),
+         dist_to_canada = units::drop_units(dist_to_canada))
+
+cities_can5 = cities %>% 
+  slice_max(dist_to_canada, n=5) %>% 
+  as_tibble() %>% 
+  select(city, state_name, dist_to_canada)
+
+knitr::kable(cities_can5, 
+             caption = "Top 5 Greatest Distance to Canada Border",
+             col.names = c("City", "State", "Greatest Distance to Border"))
+```
+
+## Question 3
+### *3.1* Data
+#### The 10 largest cities were pulled from the city data frame and used to create a map of the 10 largest US cities by population.
+```{r, message=FALSE, warning=FALSE}
+big_cities = cities %>%
+  slice_max(population, n = 10)
+
+ggplot() +
+  geom_sf(data = world) +
+  geom_sf(data = conus_s, linetype = "dotted") +
+  geom_sf(data = conus_b, size = .75) +
+  geom_sf(data = big_cities, col = "darkred", size = 1) +
+  ggrepel::geom_label_repel(
+    data = big_cities,
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3) +
+  labs(title = "10 Largest Cities")
+```
+
+### *3.2* City Distance From the Border
+#### A map was created to show the distance to the US border, as well as the five cities with the greatest distance from the US border.
+```{r message=FALSE, warning=FALSE}
+cities5sf = cities %>% 
+  slice_max(dist_to_border, n=5)
+
+ggplot() +
+  geom_sf(data = cities, aes(color = dist_to_border)) +
+  scale_color_gradient(high = "salmon", low = "skyblue3") +
+  geom_sf(data = cities5sf) +
+  ggrepel::geom_label_repel(
+    data = cities5sf,
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3) +
+  labs(title = "City Distance From the Border")
+```
+
+### *3.3* City Distance From Nearest State
+#### A map was created to show the distance to any state border, as well as the five cities with the greatest distance from any state border.  
+```{r, message=FALSE, warning=FALSE}
+cities_st5sf = cities %>% 
+  slice_max(dist_to_stborder, n=5)
+
+ggplot() +
+  geom_sf(data = cities, aes(color = dist_to_stborder)) +
+  scale_color_gradient(high = "salmon", low = "skyblue3") +
+  geom_sf(data = cities_st5sf) +
+  ggrepel::geom_label_repel(
+    data = cities_st5sf,
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3) +
+  labs(title = "City Distance From Nearest State")
+```
+
+### *3.4* Equidistance Boudary From Mexico and Canada
+#### This map shows cities that are equidistant from both the Mexican and Canadian border, as well as the five cities with the greastest distance from the Mexican and Canadian border.
+```{r, message=FALSE, warning=FALSE}
+cities <- cities %>% 
+  mutate(dist_to_mxcan = abs(dist_to_canada - dist_to_mexico))
+
+cities_mxcan5 <- cities %>% 
+  filter(dist_to_mxcan < 100) %>% 
+  slice_max(population, n = 5)
+
+ggplot() +
+  geom_sf(data = cities, aes(color = dist_to_mxcan)) +
+  scale_color_gradient(high = "salmon", low = "skyblue3") +
+  gghighlight(dist_to_mxcan < 100) +
+  geom_sf(data = cities_mxcan5) +
+  ggrepel::geom_label_repel(
+    data = cities_mxcan5,
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3) +
+  labs(title = "Equidistance Boudary From Mexico and Canada")
+```
+
+## Question 4
+### *4.1* Quantifing Border Zone
+#### According to the ACLU, almost 2 out of 3 cities are within a 100 mile zone of the US border.  A table was created to show the number of cities within this zone, as well as the number of people living in a city within the zone (also shown as a perentage).  This data matches the data given by the ACLU.
+```{r, message=FALSE, warning=FALSE}
+border_pop <- cities %>% 
+  filter(dist_to_border < 160) %>% 
+  as_tibble() %>% 
+  summarise(count = n(), population = sum(population))
+
+total_pop <- cities %>% 
+  as_tibble() %>% 
+  summarise(count = n(), population = sum(population))
+
+percent = border_pop$population / total_pop$population * 100
+
+knitr::kable(tibble(border_pop$population, total_pop$population, percent), 
+             caption = "Percent of Population Less Than 100 Miles From Border",
+             col.names = c("Border Population", "Total Population", "Percent"),
+             format.args = list(big.mark = ","))
+```
+
+### *4.2* Mapping Border Zone
+#### A map was created to highlight the cities within the 100 mile zone, in addition to the cities with the greatest population in each state within the zone.
+```{r, message=FALSE, warning=FALSE}
+ggplot() +
+  geom_sf(data = (border_pop <- cities %>% 
+                    filter(dist_to_border < 160)), aes(color = dist_to_border)) +
+  scale_color_gradient(high = "darkred", low = "orange") +
+  gghighlight(dist_to_border < 160) +
+  geom_sf(data = (border_pop <- cities %>% 
+                    filter(dist_to_border < 160) %>% 
+                    group_by(state_name) %>% 
+                    slice_max(population, n = 1))) +
+  ggrepel::geom_label_repel(
+    data = (border_pop <- cities %>% 
+      filter(dist_to_border < 160) %>% 
+      group_by(state_name) %>% 
+      slice_max(population, n = 1)),
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3) +
+  labs(title = "100 Mile Border Zone")
+```
