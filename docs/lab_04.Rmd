@@ -1,0 +1,255 @@
+---
+title: "Geography 176A"
+author: "[Bryn McGowan](https://brynmcgowan22.github.io)"
+subtitle: 'Lab 04: Tesselations, Point-in-Polygon'
+output:
+  html_document:
+    theme: journal
+---
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(sf)
+library(units)
+library(USAboundaries)
+library(gghighlight)
+library(ggrepel)
+library(rmapshaper)
+library(readxl)
+
+source("../R/utils.R")
+```
+
+### Question 1
+#### This lab begins by preparing five tesselated surfaces from CONUS data to write and plot them.
+##### Original CONUS data
+```{r, message=FALSE, warning=FALSE}
+conus = USAboundaries::us_counties(resolution = "low") %>%
+  filter(!state_name %in% c("Alaska", "Hawaii", "Puerto Rico")) %>%
+  st_transform(5070) %>%
+  st_centroid() %>%
+  st_combine()
+```
+##### Simple feature CONUS data used for mapping
+```{r, message=FALSE, warning=FALSE}
+sf_conus = USAboundaries::us_counties(resolution = "low") %>%
+  filter(!state_name %in% c("Alaska", "Hawaii", "Puerto Rico")) %>%
+  st_transform(5070) %>%
+  mutate(id = 1:n())
+```
+##### Simplified CONUS data
+```{r, message=FALSE, warning=FALSE}
+usa = USAboundaries::us_counties(resolution = "low") %>%
+  filter(!state_name %in% c("Alaska", "Hawaii", "Puerto Rico")) %>%
+  st_transform(5070) %>%
+  st_union() %>%
+  ms_simplify(keep = 0.1)
+```
+##### By simplifying the CONUS data, we reduce the amount of points from `r mapview::npts(USAboundaries::us_counties(resolution = "low") %>% filter(!state_name %in% c("Alaska", "Hawaii", "Puerto Rico")) %>% st_transform(5070) %>% st_union())` to `r mapview::npts(usa)`, which significantly reduces the amount of time the computer takes to run code.
+```{r, message=FALSE, warning=FALSE, results="hide}
+mapview::npts(usa)
+```
+##### Voroni data
+```{r, message=FALSE, warning=FALSE}
+v_conus = st_voronoi(conus) %>%
+  st_sf() %>%
+  st_cast() %>%
+  mutate(id = 1:n()) %>%
+  st_intersection(usa)
+```
+##### Delauny tesselation data
+```{r, message=FALSE, warning=FALSE}
+t_conus = st_triangulate(conus) %>%
+  st_sf() %>%
+  st_cast() %>%
+  mutate(id = 1:n()) %>%
+  st_intersection(usa)
+```
+##### Square grid data
+```{r, message=FALSE, warning=FALSE}
+gs_conus = st_make_grid(usa, n = 70, square = TRUE) %>%
+  st_sf() %>%
+  st_cast() %>%
+  mutate(id = 1:n())
+```
+##### Hexagonal grid data
+```{r, message=FALSE, warning=FALSE}
+gh_conus = st_make_grid(usa, n = 70, square = FALSE) %>%
+  st_sf() %>%
+  st_cast() %>%
+  mutate(id = 1:n())
+```
+#### A function was created to easily plot our 5 maps so there's no redundant copy and pasting.  Then the 5 plots are created at the bottom using the function.
+```{r, message=FALSE, warning=FALSE}
+county_plot = function(plot_data, plot_title) {
+  feat = plot_data %>%
+    as_tibble() %>%
+    select(id) %>%
+    summarise(max(id))
+
+  ggplot() +
+    geom_sf(data = plot_data, color = "navy", size = 0.2) +
+    aes(fillColor = "white") +
+    labs(title = plot_title,
+         caption = paste("Number of Features", feat)) +
+    theme_void()
+}
+
+county_plot(sf_conus, "US Counties")
+county_plot(v_conus, "Voroni Tesselation")
+county_plot(t_conus, "Delauny Triangulation Tesselation")
+county_plot(gs_conus, "Gridded Coverage")
+county_plot(gh_conus, "Hexagonal Coverage")
+```
+
+### Question 2
+#### A function was created to summarize the tessellated surfaces.
+```{r, message=FALSE, warning=FALSE}
+sum_tess = function(sf, desc){
+  area = st_area(sf) %>%
+      units::set_units("km^2") %>%
+      units::drop_units()
+    
+    df = data.frame(description = desc,
+                    count = nrow(sf),
+                    mean_area = mean(area),
+                    std_area = sd(area),
+                    tot_area = sum(area))
+    return(df)
+}
+
+sum_tess(sf_conus, "County Summary")
+sum_tess(v_conus, "Voroni Summary")
+sum_tess(t_conus, "Triangulate Summary")
+sum_tess(gs_conus, "Gridded Summary")
+sum_tess(gh_conus, "Hexagonal Summary")
+```
+##### Here the 5 summaries around bound together into one data frame, then printed as a table using knitr.
+```{r, message=FALSE, warning=FALSE}
+tess_summary = bind_rows(
+  sum_tess(sf_conus, "County Summary"),
+  sum_tess(v_conus, "Voroni Summary"),
+  sum_tess(t_conus, "Triangulate Summary"),
+  sum_tess(gs_conus, "Gridded Summary"),
+  sum_tess(gh_conus, "Hexagonal Summary"))
+
+knitr::kable(tess_summary,
+             caption = "Tessellation Summary",
+             col.names = c("Description", "Count", "Mean Area", "Standard Deviation", "Total Area"))
+```
+### Question 3
+#### A point-in-polygon was created
+```{r, message=FALSE, warning=FALSE}
+dams <- read_excel("../data/NID2019_U.xlsx") %>%
+  filter(!is.na(LONGITUDE) & !is.na(LATITUDE)) %>%
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326) %>%
+  st_transform(5070)
+
+point_in_polygon = function(points, polygon, c_name){
+  st_join(polygon, points) %>%
+    st_drop_geometry() %>%
+    count(get(c_name)) %>%
+    rename(c("id" = "get(c_name)")) %>%
+    left_join(polygon) %>%
+    st_as_sf()
+}
+```
+##### County
+```{r, message=FALSE, warning=FALSE, results="hide"}
+point_in_polygon(dams, sf_conus, "id")
+```
+##### Voroni
+```{r, message=FALSE, warning=FALSE, results="hide"}
+point_in_polygon(dams, v_conus, "id")
+```
+##### Triangulation
+```{r, message=FALSE, warning=FALSE, results="hide"}
+point_in_polygon(dams, t_conus, "id")
+```
+##### Square Grid
+```{r, message=FALSE, warning=FALSE, results="hide"}
+point_in_polygon(dams, gs_conus, "id")
+```
+##### Hexagonal Grid
+```{r, message=FALSE, warning=FALSE, results="hide"}
+point_in_polygon(dams, gh_conus, "id")
+```
+##### The most obvious trait out of these five tessellations is that the square and hexagonal grids have standard deviations of zero because they split the US into equal area tiles.  It's also noticable that the traigulation tessellation has the most amount of points, which ultimately results in it having the smallest mean and standard deviation.  This also means triangulation tessellation takes the longest to compute.
+
+#### A function to map the point-in-polygon function was created
+```{r, message=FALSE, warning=FALSE}
+pip_plot = function(plot_data, plot_title){
+ggplot() +
+  geom_sf(data = plot_data, aes(fill = log(n)), size = .2, col = NA) +
+  scale_fill_viridis_c() +
+  labs(title = plot_title,
+       caption = paste(sum(plot_data$n))) +
+  theme_void()
+}
+
+pip_plot(point_in_polygon(dams, sf_conus, "id"), "Number of Dams in US by County")
+pip_plot(point_in_polygon(dams, v_conus, "id"), "Number of Dams in US by County Voroni")
+pip_plot(point_in_polygon(dams, t_conus, "id"), "Number of Dams in US by County Triangulation")
+pip_plot(point_in_polygon(dams, gs_conus, "id"), "Number of Dams in US by County Square Grid")
+pip_plot(point_in_polygon(dams, gh_conus, "id"), "Number of Dams in US by County Hexagonal Grid")
+```
+##### Different tessellations create maps that present data very differently.  Voroni and triangulation tessellations maintain county sizes more than the square or hexagonal grids, which obviously influences how many points are in each tile.  While square or hexagonal tiles have equal area which may be useful in some cases, I chose to continue with the voroni tessellation because of how it better maintains the sizes of the counties, but doesn't have as many points as the triangulation tessellation.
+
+
+### Question 4
+#### A bar chart was created showing all the types of dams used in the US.
+```{r, message=FALSE, warning=FALSE}
+nid_classifier <- data.frame(
+  abbr=c("I", "H", "C", "N", "S", "R", "P", "F", "D", "T", "O"),
+  purpose=c("Irrigation", "Hydroelectric", "Flood Control", "Navigation", "Water Supply", "Recreation", "Fire Protection", "Fish and Wildlife", "Debris Control", "Tailings", "Other"))
+
+dam_freq <- strsplit(dams$PURPOSES, split = "") %>%
+  unlist() %>% 
+  table() %>% 
+  as.data.frame() %>% 
+  setNames(c("abbr", "count")) %>% 
+  left_join(nid_classifier) %>% 
+  mutate(lab = paste0(purpose, "\n(", abbr, ")"))
+
+dam_freq %>% 
+  ggplot(aes(x = lab, y = count)) +
+           geom_bar(stat = "identity") +
+  coord_flip()
+```
+
+#### Plots were created for hydroelectric, fish and wildlife, irrigation, and fire protection dams.  I chose these four because they were the most interesting to me and I was curious to see if the placement of the different types of dams would match my assumtions of where I thought they should be.
+```{r, message=FALSE, warning=FALSE}
+hydro = dams %>% 
+  filter(grepl("H", PURPOSES))
+
+fish = dams %>% 
+  filter(grepl("F", PURPOSES))
+
+irrigation = dams %>% 
+  filter(grepl("I", PURPOSES))
+
+fire = dams %>% 
+  filter(grepl("P", PURPOSES))
+```
+
+##### The placement of hydroelectric dams seems to make sense because they are mostly concentrated near Niagara Falls and the Sierra Mountains.
+```{r, message=FALSE, warning=FALSE}
+pip_plot(point_in_polygon(hydro, v_conus, "id"), "Hydro Dams in US") + 
+  gghighlight(n > (mean(n) + sd(n)))
+```
+##### The fish and wildlife dams generally made sense to me because landlocked areas would need to control water in order to allow more or less fish into a body of water.  The placement of the dams was a little more scattered than I was expecting, but overall it seems logical.
+```{r, message=FALSE, warning=FALSE}
+pip_plot(point_in_polygon(fish, v_conus, "id"), "Fish and Wildlife Dams in US") + 
+  gghighlight(n > (mean(n) + sd(n)))
+```
+##### The irrigation dams made sense to me because they seemed to be most concentrated in the midwest where there is a lot of agriculture.  At first I was confused because I thought there would be more dams near the Ohio and Illinois area, but then I realized they wouldn't really need dams because they are so close to the Great Lakes.
+```{r, message=FALSE, warning=FALSE}
+pip_plot(point_in_polygon(irrigation, v_conus, "id"), "Irrigation Dams in US") + 
+  gghighlight(n > (mean(n) + sd(n)))
+```
+##### I was surpised there weren't more dams in California for fire protection because of the amount of fires we have annually.  The midwest tends to be pretty dry so it would make sense that they would possibly need to conserve or divert water during fire season.
+```{r, message=FALSE, warning=FALSE}
+pip_plot(point_in_polygon(fire, v_conus, "id"), "Fire Protection Dams in US") + 
+  gghighlight(n > (mean(n) + sd(n)))
+```
+
