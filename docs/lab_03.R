@@ -96,3 +96,99 @@ cities_can5 = cities %>%
 knitr::kable(cities_can5, 
              caption = "Top 5 Greatest Distance to Canada Border",
              col.names = c("City", "State", "Greatest Distance to Border"))
+
+big_cities = cities %>%
+  slice_max(population, n = 10)
+  
+
+ggplot() +
+  geom_sf(data = world) +
+  geom_sf(data = conus_s, linetype = "dotted") +
+  geom_sf(data = conus_b, size = .75) +
+  geom_sf(data = big_cities, col = "darkred", size = 1) +
+  ggrepel::geom_label_repel(
+    data = big_cities,
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3)
+
+cities5sf = cities %>% 
+  slice_max(dist_to_border, n=5)
+
+ggplot() +
+  geom_sf(data = cities, aes(color = dist_to_border)) +
+  scale_color_gradient(high = "springgreen1", low = "slateblue") +
+  geom_sf(data = cities5sf) +
+  ggrepel::geom_label_repel(
+    data = cities5sf,
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3)
+
+colors()
+
+cities_st5sf = cities %>% 
+  slice_max(dist_to_stborder, n=5)
+
+ggplot() +
+  geom_sf(data = cities, aes(color = dist_to_stborder)) +
+  scale_color_gradient(high = "darkred", low = "navy") +
+  geom_sf(data = cities_st5sf) +
+  ggrepel::geom_label_repel(
+    data = cities_st5sf,
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3)
+
+cities <- cities %>% 
+  mutate(dist_to_mxcan = abs(dist_to_canada - dist_to_mexico))
+
+cities_mxcan5 <- cities %>% 
+  filter(dist_to_mxcan < 100) %>% 
+  slice_max(population, n = 5)
+
+ggplot() +
+  geom_sf(data = cities, aes(color = dist_to_mxcan)) +
+  scale_color_gradient(high = "darkred", low = "navy") +
+  gghighlight(dist_to_mxcan < 100) +
+  geom_sf(data = cities_mxcan5) +
+  ggrepel::geom_label_repel(
+    data = cities_mxcan5,
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3)
+
+border_pop <- cities %>% 
+  filter(dist_to_border < 160) %>% 
+  as_tibble() %>% 
+  summarise(count = n(), population = sum(population))
+
+total_pop <- cities %>% 
+  as_tibble() %>% 
+  summarise(count = n(), population = sum(population))
+
+percent = border_pop$population / total_pop$population * 100
+
+knitr::kable(tibble(border_pop$population, total_pop$population, percent), 
+             caption = "Percent of Population Less Than 100 Miles From Border",
+             col.names = c("Border Population", "Total Population", "Percent"))
+
+ggplot() +
+  geom_sf(data = (border_pop <- cities %>% 
+                    filter(dist_to_border < 160)), aes(color = dist_to_border)) +
+  scale_color_gradient(high = "darkred", low = "orange") +
+  gghighlight(dist_to_border < 160) +
+  geom_sf(data = (border_pop <- cities %>% 
+                    filter(dist_to_border < 160) %>% 
+                    group_by(state_name) %>% 
+                    slice_max(population, n = 1))) +
+  ggrepel::geom_label_repel(
+    data = (border_pop <- cities %>% 
+      filter(dist_to_border < 160) %>% 
+      group_by(state_name) %>% 
+      slice_max(population, n = 1)),
+    aes(label = city, geometry = geometry),
+    stat = "sf_coordinates",
+    size = 3)
+
+

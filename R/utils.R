@@ -50,22 +50,17 @@ county_plot = function(plot_data, plot_title) {
     theme_void()
 }
 
-sum_tess = function(sf, desc) {
-  sf = sf %>%
-    mutate(area = st_area(.),
-           area = units::set_units(area, "km^2"),
-           area = units::drop_units(area))
+sum_tess = function(sf, desc){
+  area = st_area(sf) %>%
+      units::set_units("km^2") %>%
+      units::drop_units()
 
-  my_sum = sf %>%
-    summarise(a = mean(area), s = sd(area), t = sum(area), c = n())
-
-  df = data.frame(description = desc,
-                count = my_sum$c,
-                mean_area = my_sum$a,
-                std_area = my_sum$s,
-                tot_area = my_sum$t)
-
-  return(df)
+    df = data.frame(description = desc,
+                    count = nrow(sf),
+                    mean_area = mean(area),
+                    std_area = sd(area),
+                    tot_area = sum(area))
+    return(df)
 }
 
 point_in_polygon = function(points, polygon, c_name){
@@ -75,11 +70,6 @@ point_in_polygon = function(points, polygon, c_name){
     rename(c("id" = "get(c_name)")) %>%
     left_join(polygon) %>%
     st_as_sf()
-}
-
-point_in_polygon_slow = function(points, polygon, name){
-  st_join(polygon, points) %>%
-    count(get(name))
 }
 
 pip_plot = function(plot_data, plot_title){
@@ -104,3 +94,4 @@ sum_tess2 = function(sf, desc) {
   return(df)
 }
 
+thresholding = function(x){ifelse(x <= 0, 1, NA)}
