@@ -93,5 +93,3 @@ sum_tess2 = function(sf, desc) {
                   tot_area = sum(area))
   return(df)
 }
-
-thresholding = function(x){ifelse(x <= 0, 1, NA)}
