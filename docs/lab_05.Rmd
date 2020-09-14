@@ -20,7 +20,7 @@ library(stats)
 ### Question 1
 
 ```{r, message=FALSE, warning=FALSE}
-uscities = read_csv("data/uscities.csv")
+uscities = read_csv("../data/uscities.csv")
 
 bb = uscities %>%
   filter(city == "Palo") %>%
@@ -38,7 +38,9 @@ mapview(bb)
 ### Question 2
 
 ```{r, message=FALSE, warning=FALSE}
-meta = read_csv("data/palo-flood-scene.csv")
+bbwgs = bb %>% st_transform(4326)
+bb = st_bbox(bbwgs)
+meta = read_csv("../data/palo-flood-scene.csv")
 
 files = lsat_scene_files(meta$download_url) %>%
   filter(grepl(paste0("B", 1:6, ".TIF$", collapse = "|"), file)) %>%
@@ -77,7 +79,7 @@ mndwi = (r$band3 - r$band6) / (r$band3 + r$band6)
 wri = (r$band3 + r$band4) / (r$band5 + r$band6)
 swi  = (1 / (sqrt(r$band2 - r$band6)))
 
-stack = stack(ndvi, ndwi, nmdwi, wri, swi) %>%
+stack = stack(ndvi, ndwi, mndwi, wri, swi) %>%
   setNames(c("Normalized difference vegetation index",
              "Normalized Difference water Index",
              "Modified normalized difference water index",

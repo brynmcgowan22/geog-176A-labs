@@ -63,22 +63,22 @@ sum_tess = function(sf, desc){
     return(df)
 }
 
-point_in_polygon = function(points, polygon, c_name){
+point_in_polygon = function(points, polygon, id){
   st_join(polygon, points) %>%
     st_drop_geometry() %>%
-    count(get(c_name)) %>%
-    rename(c("id" = "get(c_name)")) %>%
-    left_join(polygon) %>%
+    count(.data[[id]]) %>%
+    setNames(c(id, "n")) %>%
+    left_join(polygon, by = id) %>%
     st_as_sf()
 }
 
 pip_plot = function(plot_data, plot_title){
-ggplot() +
-  geom_sf(data = plot_data, aes(fill = log(n)), size = .2, col = NA) +
-  scale_fill_viridis_c() +
-  labs(title = plot_title,
-       caption = paste(sum(plot_data$n))) +
-  theme_void()
+  ggplot() +
+    geom_sf(data = plot_data, aes(fill = log(n)), size = .2, col = NA) +
+    scale_fill_viridis_c() +
+    labs(title = plot_title,
+         caption = paste(sum(plot_data$n))) +
+    theme_void()
 }
 
 sum_tess2 = function(sf, desc) {

@@ -1,140 +1,98 @@
-library(raster)
 library(tidyverse)
-library(getlandsat)
 library(sf)
-library(mapview)
+library(raster)
+library(fasterize)
+library(whitebox)
 library(osmdata)
-library(stats)
+library(elevatr)
 
-uscities = read_csv("data/uscities.csv")
 
-bb = uscities %>%
-  filter(city == "Palo") %>%
-  st_as_sf(coords = c("lng", "lat"), crs = 4326) %>%
-  st_transform(5070) %>%
-  st_buffer(5000) %>%
-  st_bbox() %>%
+### Collecting Data
+basin = read_sf("https://labs.waterdata.usgs.gov/api/nldi/linked-data/nwissite/USGS-11119750/basin")
+
+elev  = elevatr::get_elev_raster(basin, z = 13, units = "feet") %>%
+  crop(basin) %>%
+  mask(basin)
+
+writeRaster(elev, "data/basinelev.tif", overwrite = TRUE)
+
+elev_raster = raster("data/basinelev.tif")
+
+bb = st_bbox(basin) %>%
   st_as_sfc() %>%
-  st_as_sf()
+  st_transform(4326)
 
-mapview(bb)
+osm = osmdata::opq(bb) %>%
+  add_osm_feature(key = 'building') %>%
+  osmdata_sf()
 
-# scenes = lsat_scenes()
+building = osm$osm_polygons %>%
+  st_intersection(basin) %>%
+  st_transform(crs(basin)) %>%
+  st_centroid()
 
-bbwgs = bb %>% st_transform(4326)
-bb = st_bbox(bbwgs)
+rail = building %>%
+  dplyr::filter(amenity == "railway")
 
-down = scenes %>%
-  filter(min_lat <= bb$ymin, max_lat >= bb$ymax,
-         min_lon <= bb$xmin, max_lon >= bb$xmax,
-         as.Date(acquisitionDate) == as.Date("2016-09-26"))
+osm2 = osmdata::opq(bb) %>%
+  add_osm_feature(key = 'waterway', value = "stream") %>%
+  osmdata_sf()
 
-write.csv(down, file = "data/palo-flood-scene.csv", row.names = FALSE)
+stream = osm2$osm_lines
 
-meta = read_csv("data/palo-flood-scene.csv")
+stream = stream %>%
+  st_transform(crs(basin)) %>%
+  st_intersection(basin)
 
-files = lsat_scene_files(meta$download_url) %>%
-  filter(grepl(paste0("B", 1:6, ".TIF$", collapse = "|"), file)) %>%
-  arrange(file) %>%
-  pull(file)
+### Question 2: Terrain Analysis
 
-st = sapply(files, lsat_image)
+wbt_hillshade("data/basinelev.tif", "data/basinhillshade.tif")
 
-s = stack(st) %>%
-  setNames(c(paste0("band", 1:6)))
+hill_raster = raster("data/basinelev.tif")
 
-cropper = bbwgs %>% st_transform(crs(s))
+plot(hill_raster, axes = FALSE, box = FALSE, col = gray.colors(256, alpha = 0.5), main = "Hillshade", legend = FALSE)
+plot(stream, add = TRUE, col = "blue")
 
-r = crop(s, cropper)
+stream_buffer = stream %>%
+  st_transform(5070) %>%
+  st_buffer(10) %>%
+  st_transform(crs(elev_raster))
 
-par(mfrow = c(2, 2))
-plotRGB(r, r = 4, g = 3, b = 2, stretch = "lin")
-plotRGB(r, r = 5, g = 4, b = 3, stretch = "lin")
-plotRGB(r, r = 5, g = 6, b = 4, stretch = "hist")
-plotRGB(r, r = 6, g = 3, b = 2, stretch = "lin")
+stream_raster = fasterize::fasterize(stream_buffer, elev_raster)
 
-ndvi = (r$band5 - r$band4) / (r$band5 + r$band4)
-ndwi = (r$band3 - r$band5) / (r$band3 + r$band5)
-mndwi = (r$band3 - r$band6) / (r$band3 + r$band6)
-wri = (r$band3 + r$band4) / (r$band5 + r$band6)
-swi  = (1 / (sqrt(r$band2 - r$band6)))
+writeRaster(stream_raster, "data/streamelev.tif", overwrite = TRUE)
 
-stack = stack(ndvi, ndwi, nmdwi, wri, swi) %>%
-  setNames(c("Normalized difference vegetation index",
-             "Normalized Difference water Index",
-             "Modified normalized difference water index",
-             "Water ratio index",
-             "Simple water index"))
+wbt_breach_depressions("data/basinelev.tif", "data/beachdepressions.tif")
 
-palette = colorRampPalette(c("blue", "white", "red"))
-plot(stack, col = palette(256))
+wbt_elevation_above_stream("data/beachdepressions.tif", "data/streamelev.tif", "data/handraster.tif")
 
+hand_raster = raster("data/handraster.tif")
+hand_raster = hand_raster + 3.69
+stream_raster = raster("data/streamelev.tif")
 
-thresholding_ndvi = function(x){ifelse(x <= 0, 1, 0)}
-thresholding_ndwi = function(x){ifelse(x >= 0, 1, 0)}
-thresholding_mndwi = function(x){ifelse(x >= 0, 1, 0)}
-thresholding_wri = function(x){ifelse(x >= 1, 1, 0)}
-thresholding_swi = function(x){ifelse(x <= 5, 1, 0)}
+hand_raster[stream_raster == 1] = 0
 
-flood_ndvi = calc(ndvi, thresholding_ndvi)
-flood_ndwi = calc(ndwi, thresholding_ndwi)
-flood_mndwi = calc(mndwi, thresholding_mndwi)
-flood_wri = calc(wri, thresholding_wri)
-flood_swi = calc(swi, thresholding_swi)
+writeRaster(hand_raster, "data/handoffset.tif", overwrite = TRUE)
 
-flood_stack = stack(flood_ndvi, flood_ndwi, flood_mndwi, flood_wri, flood_swi) %>%
-  setNames(c("NDVI",
-             "NDWI",
-             "MNDWI",
-             "WRI",
-             "SWI"))
+### Question 3: 2017 Impact Assessment
 
-plot(flood_stack, col = c("white", "blue"))
+hand_offset = raster("data/handoffset.tif")
+
+hand_offset[hand_offset > 10.02] = NA
+
+plot(hill_raster, col = gray.colors(256, alpha = .5), main = "Hillshade Basin and Flood", legend = FALSE, box =FALSE)
+plot(hand_offset, add = TRUE, col = rev(blues9), legend = FALSE)
+plot(basin, add = TRUE)
+plot(railway, col = "green", cex = 1, pch = 16, add = TRUE)
+
+# These maps look accurate
 
 
 
-set.seed(1)
 
-values = getValues(r)
-dim(values)
-# 117640    6
 
-values = na.omit(values)
 
-k12 = kmeans(values, centers = 12)
-k6 = kmeans(values, centers = 6)
-k3 = kmeans(values, centers = 3)
 
-kmeans_raster12 = flood_stack$NDVI
-kmeans_raster6 = flood_stack$NDVI
-kmeans_raster3 = flood_stack$NDVI
-
-values(kmeans_raster12) = k12$cluster
-plot(kmeans_raster12)
-values(kmeans_raster6) = k6$cluster
-plot(kmeans_raster6)
-values(kmeans_raster3) = k3$cluster
-plot(kmeans_raster3)
-
-t = table(getValues(flood_swi), getValues(kmeans_raster12))
-
-index = which.max(t[2,])
-# 9
-
-thresholding_index = function(x){ifelse(x == 9, 1, 0)}
-
-flood_index = calc(kmeans_raster12, thresholding_index)
-
-plot(flood_index)
-
-flood_stack = flood_stack %>% addLayer(flood_index) %>%
-  setNames(c("NDVI",
-             "NDWI",
-             "MNDWI",
-             "WRI",
-             "SWI",
-             "Index"))
-plot(flood_stack, col = c("white", "blue"))
 
 
 
