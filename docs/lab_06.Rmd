@@ -5,7 +5,7 @@ subtitle: 'Lab 06: Flood Risk in Mission Creek: Past, Present, Future'
 date: "9/12/2020"
 output:
   html_document:
-    theme: darkly
+    theme: journal
 ---
 
 ```{r, message=FALSE, warning=FALSE}
