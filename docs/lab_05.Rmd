@@ -31,7 +31,7 @@ bb = uscities %>%
   st_as_sfc() %>%
   st_as_sf()
 
-mapview(bb)
+# mapview(bb)
 
 ```
 
@@ -56,9 +56,9 @@ cropper = bbwgs %>% st_transform(crs(s))
 
 r = crop(s, cropper)
 ```
-dimensions : 340, 346, 117640, 6  (nrow, ncol, ncell, nlayers)
-crs        : +proj=utm +zone=15 +datum=WGS84 +units=m +no_defs
-resolution : 30, 30  (x, y)
+##### dimensions : 340, 346, 117640, 6  (nrow, ncol, ncell, nlayers)
+##### crs        : +proj=utm +zone=15 +datum=WGS84 +units=m +no_defs
+##### resolution : 30, 30  (x, y)
 
 ### Question 3
 ```{r, message=FALSE, warning=FALSE}
@@ -68,7 +68,8 @@ plotRGB(r, r = 5, g = 4, b = 3, stretch = "lin")
 plotRGB(r, r = 5, g = 6, b = 4, stretch = "hist")
 plotRGB(r, r = 6, g = 3, b = 2, stretch = "lin")
 ```
-The color stretch adds contrast to the plot to make the colors more enhanced.
+
+##### The color stretch adds contrast to the plot to make the colors more enhanced.
 
 ### Question 4
 #### Step 1
@@ -183,4 +184,5 @@ plot(rsum_plot, col = blues9)
 uncertainty = calc(flood_stack, fun = sum)
 plot(uncertainty, col = blues9)
 ```
-Some of the cell values aren't even because the data is averages, meaning there is overlap in some of the cells.
+
+##### Some of the cell values aren't even because the data is averages, meaning there is overlap in some of the cells.
